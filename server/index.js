@@ -455,16 +455,22 @@ async function listVisits(filters = {}) {
       c.grupo_economico,
       t.nome AS tipo_visita,
       pr.id AS proposta_id,
-      COALESCE(GROUP_CONCAT(p.nome SEPARATOR ', '), '') AS produtos,
-      COALESCE(GROUP_CONCAT(p.id), '') AS produto_ids
+      COALESCE(vp_agg.produtos, '') AS produtos,
+      COALESCE(vp_agg.produto_ids, '') AS produto_ids
     FROM visitas v
     JOIN concessionarias c ON c.id = v.concessionaria_id
     JOIN tipos_visita t ON t.id = v.tipo_visita_id
     LEFT JOIN propostas pr ON pr.visita_id = v.id
-    LEFT JOIN visita_produtos vp ON vp.visita_id = v.id
-    LEFT JOIN produtos p ON p.id = vp.produto_id
+    LEFT JOIN (
+      SELECT
+        vp.visita_id,
+        GROUP_CONCAT(p.nome ORDER BY p.nome SEPARATOR ', ') AS produtos,
+        GROUP_CONCAT(p.id ORDER BY p.nome) AS produto_ids
+      FROM visita_produtos vp
+      JOIN produtos p ON p.id = vp.produto_id
+      GROUP BY vp.visita_id
+    ) vp_agg ON vp_agg.visita_id = v.id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    GROUP BY v.id
     ORDER BY v.data_visita DESC, v.id DESC
     ${filters.limit ? 'LIMIT @limit' : ''}`,
     params,
@@ -498,16 +504,22 @@ async function listProposals(filters = {}) {
       c.nome AS concessionaria,
       c.grupo_economico,
       t.nome AS tipo_visita,
-      COALESCE(GROUP_CONCAT(p.nome SEPARATOR ', '), '') AS produtos,
-      COALESCE(GROUP_CONCAT(p.id), '') AS produto_ids
+      COALESCE(pp_agg.produtos, '') AS produtos,
+      COALESCE(pp_agg.produto_ids, '') AS produto_ids
     FROM propostas pr
     JOIN visitas v ON v.id = pr.visita_id
     JOIN concessionarias c ON c.id = v.concessionaria_id
     JOIN tipos_visita t ON t.id = v.tipo_visita_id
-    LEFT JOIN proposta_produtos pp ON pp.proposta_id = pr.id
-    LEFT JOIN produtos p ON p.id = pp.produto_id
+    LEFT JOIN (
+      SELECT
+        pp.proposta_id,
+        GROUP_CONCAT(p.nome ORDER BY p.nome SEPARATOR ', ') AS produtos,
+        GROUP_CONCAT(p.id ORDER BY p.nome) AS produto_ids
+      FROM proposta_produtos pp
+      JOIN produtos p ON p.id = pp.produto_id
+      GROUP BY pp.proposta_id
+    ) pp_agg ON pp_agg.proposta_id = pr.id
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    GROUP BY pr.id
     ORDER BY v.data_visita DESC, pr.id DESC`,
     params,
   )
