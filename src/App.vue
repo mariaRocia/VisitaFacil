@@ -118,6 +118,8 @@ const sections = [
 
 const currentSection = ref('dashboard')
 const loading = ref(false)
+const saving = ref(false)
+const deletingKey = ref('')
 const message = ref('')
 let messageTimer: number | undefined
 const authMode = ref<'login' | 'cadastro' | 'recuperar' | 'redefinir'>('login')
@@ -486,36 +488,68 @@ function openVisit(visit?: Visit) {
 }
 
 function closeModal() {
+  if (saving.value) return
   modal.value = null
   editingId.value = null
   selectedProposal.value = null
 }
 
 async function saveDealer() {
+  if (saving.value) return
+  saving.value = true
   const method = editingId.value ? 'PUT' : 'POST'
   const path = editingId.value ? `/concessionarias/${editingId.value}` : '/concessionarias'
-  await request(path, { method, body: JSON.stringify(dealerForm) })
-  closeModal()
-  await loadAll()
+  try {
+    await request(path, { method, body: JSON.stringify(dealerForm) })
+    modal.value = null
+    editingId.value = null
+    selectedProposal.value = null
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  } finally {
+    saving.value = false
+  }
 }
 
 async function saveProduct() {
+  if (saving.value) return
+  saving.value = true
   const method = editingId.value ? 'PUT' : 'POST'
   const path = editingId.value ? `/produtos/${editingId.value}` : '/produtos'
-  await request(path, { method, body: JSON.stringify(productForm) })
-  closeModal()
-  await loadAll()
+  try {
+    await request(path, { method, body: JSON.stringify(productForm) })
+    modal.value = null
+    editingId.value = null
+    selectedProposal.value = null
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  } finally {
+    saving.value = false
+  }
 }
 
 async function saveType() {
+  if (saving.value) return
+  saving.value = true
   const method = editingId.value ? 'PUT' : 'POST'
   const path = editingId.value ? `/tipos-visita/${editingId.value}` : '/tipos-visita'
-  await request(path, { method, body: JSON.stringify({ ...typeForm, ativo: typeForm.ativo ? 1 : 0 }) })
-  closeModal()
-  await loadAll()
+  try {
+    await request(path, { method, body: JSON.stringify({ ...typeForm, ativo: typeForm.ativo ? 1 : 0 }) })
+    modal.value = null
+    editingId.value = null
+    selectedProposal.value = null
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  } finally {
+    saving.value = false
+  }
 }
 
 async function saveVisit() {
+  if (saving.value) return
   const wasTurningOffProposal = editingId.value && !visitForm.gerou_proposta
   if (
     wasTurningOffProposal &&
@@ -523,6 +557,7 @@ async function saveVisit() {
   ) {
     return
   }
+  saving.value = true
   const payload = {
     concessionaria_id: Number(visitForm.concessionaria_id),
     tipo_visita_id: Number(visitForm.tipo_visita_id),
@@ -535,15 +570,24 @@ async function saveVisit() {
   }
   const method = editingId.value ? 'PUT' : 'POST'
   const path = editingId.value ? `/visitas/${editingId.value}` : '/visitas'
-  const saved = await request<Visit & { warning?: string }>(path, { method, body: JSON.stringify(payload) })
-  if (saved.warning) showMessage(saved.warning)
-  closeModal()
-  currentSection.value = 'visitas'
-  await loadAll()
+  try {
+    const saved = await request<Visit & { warning?: string }>(path, { method, body: JSON.stringify(payload) })
+    if (saved.warning) showMessage(saved.warning)
+    modal.value = null
+    editingId.value = null
+    selectedProposal.value = null
+    currentSection.value = 'visitas'
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  } finally {
+    saving.value = false
+  }
 }
 
 async function saveProposal() {
-  if (!selectedProposal.value) return
+  if (!selectedProposal.value || saving.value) return
+  saving.value = true
   try {
     await request(`/propostas/${selectedProposal.value.id}`, {
       method: 'PUT',
@@ -553,11 +597,15 @@ async function saveProposal() {
         tem_nova_call: proposalForm.tem_nova_call ? 1 : 0,
       }),
     })
-    closeModal()
+    modal.value = null
+    editingId.value = null
+    selectedProposal.value = null
     await loadAll()
     currentSection.value = 'propostas'
   } catch (error) {
     showMessage(error)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -570,11 +618,16 @@ async function removeEntity(kind: string, id: number) {
     propostas: 'proposta',
   }
   if (!window.confirm(`Excluir ${labels[kind]}?`)) return
+  const key = `${kind}:${id}`
+  if (deletingKey.value) return
+  deletingKey.value = key
   try {
     await request(`/${kind}/${id}`, { method: 'DELETE' })
     await loadAll()
   } catch (error) {
     showMessage(error)
+  } finally {
+    deletingKey.value = ''
   }
 }
 
@@ -1134,7 +1187,7 @@ onMounted(async () => {
                 <td>{{ dealer.contato_principal }}<br /><small>{{ dealer.whatsapp }}</small></td>
                 <td class="actions">
                   <button class="icon-btn" type="button" @click="openDealer(dealer)"><svg viewBox="0 0 24 24"><path :d="iconPath('edit')" /></svg></button>
-                  <button class="icon-btn danger" type="button" @click="removeEntity('concessionarias', dealer.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
+                  <button class="icon-btn danger" type="button" :disabled="Boolean(deletingKey)" @click="removeEntity('concessionarias', dealer.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
                 </td>
               </tr>
             </tbody>
@@ -1158,7 +1211,7 @@ onMounted(async () => {
             </div>
             <div class="row-actions">
               <button class="icon-btn" type="button" @click="openProduct(product)"><svg viewBox="0 0 24 24"><path :d="iconPath('edit')" /></svg></button>
-              <button class="icon-btn danger" type="button" @click="removeEntity('produtos', product.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
+              <button class="icon-btn danger" type="button" :disabled="Boolean(deletingKey)" @click="removeEntity('produtos', product.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
             </div>
           </article>
         </div>
@@ -1190,7 +1243,7 @@ onMounted(async () => {
                 <td class="actions">
                   <button class="icon-btn" type="button" @click="openType(type)"><svg viewBox="0 0 24 24"><path :d="iconPath('edit')" /></svg></button>
                   <button class="icon-btn" type="button" @click="toggleType(type)"><svg viewBox="0 0 24 24"><path :d="iconPath('power')" /></svg></button>
-                  <button class="icon-btn danger" type="button" @click="removeEntity('tipos-visita', type.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
+                  <button class="icon-btn danger" type="button" :disabled="Boolean(deletingKey)" @click="removeEntity('tipos-visita', type.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
                 </td>
               </tr>
             </tbody>
@@ -1285,7 +1338,7 @@ onMounted(async () => {
                 <button class="icon-btn" type="button" title="Editar proposta" @click="openProposal(proposal)">
                   <svg viewBox="0 0 24 24"><path :d="iconPath('edit')" /></svg>
                 </button>
-                <button class="icon-btn danger" type="button" title="Excluir proposta" @click="removeEntity('propostas', proposal.id)">
+                <button class="icon-btn danger" type="button" title="Excluir proposta" :disabled="Boolean(deletingKey)" @click="removeEntity('propostas', proposal.id)">
                   <svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg>
                 </button>
               </footer>
@@ -1322,7 +1375,7 @@ onMounted(async () => {
                       <a class="calendar-link" :href="googleCalendarUrl(visit)" target="_blank" rel="noreferrer">Google</a>
                       <a class="calendar-link" :href="outlookCalendarUrl(visit)" target="_blank" rel="noreferrer">Teams</a>
                     </span>
-                    <button class="icon-btn danger" type="button" @click="removeEntity('visitas', visit.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
+                    <button class="icon-btn danger" type="button" :disabled="Boolean(deletingKey)" @click="removeEntity('visitas', visit.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
                   </td>
                 </tr>
                 <tr v-if="!visits.length">
@@ -1426,7 +1479,7 @@ onMounted(async () => {
                     <button class="icon-btn" type="button" title="Editar proposta" @click="openProposal(proposal)">
                       <svg viewBox="0 0 24 24"><path :d="iconPath('edit')" /></svg>
                     </button>
-                    <button class="icon-btn danger" type="button" @click="removeEntity('propostas', proposal.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
+                    <button class="icon-btn danger" type="button" :disabled="Boolean(deletingKey)" @click="removeEntity('propostas', proposal.id)"><svg viewBox="0 0 24 24"><path :d="iconPath('trash')" /></svg></button>
                   </td>
                 </tr>
                 <tr v-if="!proposals.length">
@@ -1457,7 +1510,7 @@ onMounted(async () => {
                       : 'Visita'
             }}
           </h2>
-          <button class="close-btn" type="button" @click="closeModal">x</button>
+          <button class="close-btn" type="button" :disabled="saving" @click="closeModal">x</button>
         </header>
 
         <form v-if="modal === 'dealer'" class="form-grid" @submit.prevent="saveDealer">
@@ -1470,20 +1523,20 @@ onMounted(async () => {
           <label>Contato principal<input v-model="dealerForm.contato_principal" /></label>
           <label>WhatsApp<input v-model="dealerForm.whatsapp" /></label>
           <label class="full">E-mail<input v-model="dealerForm.email" type="email" /></label>
-          <button class="btn primary full" type="submit">Salvar concessionaria</button>
+          <button class="btn primary full" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar concessionaria' }}</button>
         </form>
 
         <form v-if="modal === 'product'" class="form-grid single" @submit.prevent="saveProduct">
           <label>Nome do produto<input v-model="productForm.nome" required /></label>
           <label>Valor unitario<input v-model="productForm.valor_unitario" type="number" min="0.01" step="0.01" required /></label>
-          <button class="btn primary" type="submit">Salvar produto</button>
+          <button class="btn primary" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar produto' }}</button>
         </form>
 
         <form v-if="modal === 'type'" class="form-grid" @submit.prevent="saveType">
           <label>Nome do tipo de visita<input v-model="typeForm.nome" required /></label>
           <label class="full">Descricao<textarea v-model="typeForm.descricao" rows="4"></textarea></label>
           <label class="switch full"><input v-model="typeForm.ativo" type="checkbox" /> Ativo</label>
-          <button class="btn primary full" type="submit">Salvar tipo</button>
+          <button class="btn primary full" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar tipo' }}</button>
         </form>
 
         <form v-if="modal === 'visit'" class="form-grid" @submit.prevent="saveVisit">
@@ -1518,7 +1571,7 @@ onMounted(async () => {
           <label class="switch full"><input v-model="visitForm.gerou_proposta" type="checkbox" /> Gerou proposta?</label>
           <label>Data da nova reuniao<input v-model="visitForm.data_proxima_reuniao" type="date" /></label>
           <label>Hora da nova reuniao<input v-model="visitForm.hora_proxima_reuniao" type="time" /></label>
-          <button class="btn primary full" type="submit">Salvar visita</button>
+          <button class="btn primary full" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar visita' }}</button>
         </form>
 
         <form v-if="modal === 'proposal' && selectedProposal" class="proposal-detail" @submit.prevent="saveProposal">
@@ -1619,8 +1672,10 @@ onMounted(async () => {
             </div>
           </section>
 
-          <button class="btn primary full" type="submit">Salvar proposta</button>
+          <button class="btn primary full" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar proposta' }}</button>
         </form>
+
+        <div v-if="saving" class="modal-saving" aria-live="polite">Salvando...</div>
       </section>
     </div>
   </div>
