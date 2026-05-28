@@ -398,7 +398,7 @@ async function loadProposals() {
 }
 
 function showMessage(error: unknown) {
-  const nextMessage = error instanceof Error ? error.message : String(error)
+  const nextMessage = publicMessage(error instanceof Error ? error.message : String(error))
   if (message.value === nextMessage) return
   message.value = nextMessage
   if (messageTimer) window.clearTimeout(messageTimer)
@@ -406,6 +406,13 @@ function showMessage(error: unknown) {
     message.value = ''
     messageTimer = undefined
   }, 4200)
+}
+
+function publicMessage(value: string) {
+  if (/sql_mode|group by|select list|order by|mysql|tidb|syntax|database/i.test(value)) {
+    return 'Nao foi possivel processar a solicitacao agora. Tente novamente em instantes.'
+  }
+  return value
 }
 
 function openDealer(dealer?: Dealer) {
