@@ -405,11 +405,14 @@ function showMessage(error: unknown) {
   messageTimer = window.setTimeout(() => {
     message.value = ''
     messageTimer = undefined
-  }, 4200)
+  }, 2800)
 }
 
 function publicMessage(value: string) {
-  if (/sql_mode|group by|select list|order by|mysql|tidb|syntax|database/i.test(value)) {
+  if (
+    /sql_mode|group by|select list|order by|mysql|tidb|syntax|database|expression #|nonaggregated|clause/i.test(value)
+    || value.length > 160
+  ) {
     return 'Nao foi possivel processar a solicitacao agora. Tente novamente em instantes.'
   }
   return value

@@ -29,7 +29,7 @@ app.use(cors())
 app.use(express.json())
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, database: 'mysql', name: dbName })
+  res.json({ ok: true, database: 'mysql', name: dbName, version: '2026-05-28-2' })
 })
 
 app.post('/api/auth/cadastro', h(async (req, res) => {
