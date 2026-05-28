@@ -106,7 +106,7 @@ type Proposal = {
   itens?: ProposalItem[]
 }
 
-const apiBase = '/api'
+const apiBase = import.meta.env.VITE_API_URL || '/api'
 const sections = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'concessionarias', label: 'Concessionarias', icon: 'store' },

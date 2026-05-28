@@ -352,6 +352,7 @@ app.listen(port, () => {
 })
 
 async function initDb() {
+  const ssl = process.env.DB_SSL === 'true' ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } : undefined
   const baseConfig = {
     host: process.env.DB_HOST || 'localhost',
     port: Number(process.env.DB_PORT || 3306),
@@ -359,6 +360,7 @@ async function initDb() {
     password: process.env.DB_PASSWORD || '',
     multipleStatements: true,
     dateStrings: true,
+    ssl,
   }
 
   const setup = await mysql.createConnection(baseConfig)
