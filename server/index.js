@@ -344,7 +344,10 @@ app.delete('/api/propostas/:id', h(async (req, res) => {
 app.use((error, _req, res, _next) => {
   const status = error.status || 500
   if (status >= 500) console.error(error)
-  res.status(status).json({ error: error.message || 'Erro interno' })
+  const message = status >= 500 && process.env.NODE_ENV === 'production'
+    ? 'Nao foi possivel processar a solicitacao agora. Tente novamente em instantes.'
+    : error.message || 'Erro interno'
+  res.status(status).json({ error: message })
 })
 
 app.listen(port, () => {

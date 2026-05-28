@@ -119,6 +119,7 @@ const sections = [
 const currentSection = ref('dashboard')
 const loading = ref(false)
 const message = ref('')
+let messageTimer: number | undefined
 const authMode = ref<'login' | 'cadastro' | 'recuperar' | 'redefinir'>('login')
 const authLoading = ref(false)
 const resetToken = ref('')
@@ -397,9 +398,13 @@ async function loadProposals() {
 }
 
 function showMessage(error: unknown) {
-  message.value = error instanceof Error ? error.message : String(error)
-  window.setTimeout(() => {
+  const nextMessage = error instanceof Error ? error.message : String(error)
+  if (message.value === nextMessage) return
+  message.value = nextMessage
+  if (messageTimer) window.clearTimeout(messageTimer)
+  messageTimer = window.setTimeout(() => {
     message.value = ''
+    messageTimer = undefined
   }, 4200)
 }
 
