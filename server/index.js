@@ -14,7 +14,7 @@ const rootDir = path.join(__dirname, '..')
 loadEnvFile(path.join(rootDir, '.env'))
 
 const migrationPath = path.join(__dirname, 'migrations', '001_schema.mysql.sql')
-const port = Number(process.env.API_PORT || 3001)
+const port = Number(process.env.PORT || process.env.API_PORT || 3001)
 const dbName = process.env.DB_NAME || 'visitafacil'
 const appUrl = process.env.APP_URL || 'http://localhost:5173'
 const proposalStatuses = ['Em andamento', 'Em aberto', 'Ganha', 'Perdida']
