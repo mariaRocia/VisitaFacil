@@ -62,28 +62,14 @@ type Dashboard = {
   recentes: Visit[]
 }
 
-type VisitAiSummary = {
-  resumo: string
-  pontos_de_dor: string[]
-  interesses: string[]
-  objecoes: string[]
-  proximos_passos: string[]
-}
-
-type DashboardAiInsights = {
-  resumo: string
-  alertas: string[]
-  oportunidades: string[]
-  acoes_recomendadas: string[]
-}
-
-type LossReasonAi = {
-  categoria: string
-  motivo_sugerido: string
-  confianca: string
-}
-
 type DashboardPeriod = 'semana' | 'mes' | 'ano' | 'todos'
+
+type User = {
+  id: number
+  nome: string
+  login: string
+  email?: string
+}
 
 type ProposalItem = {
   id: number
@@ -133,15 +119,16 @@ const sections = [
 const currentSection = ref('dashboard')
 const loading = ref(false)
 const message = ref('')
+const authMode = ref<'login' | 'cadastro' | 'recuperar' | 'redefinir'>('login')
+const authLoading = ref(false)
+const resetToken = ref('')
+const token = ref(localStorage.getItem('vf_token') || '')
+const currentUser = ref<User | null>(null)
 const modal = ref<'dealer' | 'product' | 'type' | 'visit' | 'proposal' | null>(null)
 const editingId = ref<number | null>(null)
 const selectedProposal = ref<Proposal | null>(null)
 const isMenuOpen = ref(false)
 const dashboardPeriod = ref<DashboardPeriod>('mes')
-const aiLoading = ref<'visit-summary' | 'dashboard-insights' | 'loss-reason' | null>(null)
-const visitAiSummary = ref<VisitAiSummary | null>(null)
-const dashboardAiInsights = ref<DashboardAiInsights | null>(null)
-const lossReasonAi = ref<LossReasonAi | null>(null)
 
 const dealers = ref<Dealer[]>([])
 const products = ref<Product[]>([])
@@ -222,6 +209,14 @@ const dashboardPeriodOptions: Array<{ id: DashboardPeriod; label: string }> = [
   { id: 'todos', label: 'Tudo' },
 ]
 
+const authForm = reactive({
+  nome: '',
+  login: '',
+  email: '',
+  senha: '',
+  nova_senha: '',
+})
+
 const proposalForm = reactive({
   status: 'Em andamento',
   finalizada: false,
@@ -279,15 +274,83 @@ function iconPath(name: string) {
 }
 
 async function request<T>(path: string, options: RequestInit = {}) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (token.value) headers.Authorization = `Bearer ${token.value}`
   const response = await fetch(`${apiBase}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers: {
+      ...headers,
+      ...(options.headers as Record<string, string> | undefined),
+    },
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
+    if (response.status === 401) clearSession()
     throw new Error(body.error || 'Erro ao processar requisicao')
   }
   return body as T
+}
+
+async function submitAuth() {
+  authLoading.value = true
+  try {
+    if (authMode.value === 'recuperar') {
+      const result = await request<{ message: string }>('/auth/recuperar-senha', {
+        method: 'POST',
+        body: JSON.stringify({ login: authForm.login }),
+      })
+      showMessage(result.message)
+      authMode.value = 'login'
+      authForm.login = ''
+      return
+    }
+
+    if (authMode.value === 'redefinir') {
+      const result = await request<{ message: string }>('/auth/redefinir-senha', {
+        method: 'POST',
+        body: JSON.stringify({ token: resetToken.value, senha: authForm.nova_senha }),
+      })
+      showMessage(result.message)
+      resetToken.value = ''
+      authMode.value = 'login'
+      authForm.nova_senha = ''
+      window.history.replaceState({}, document.title, window.location.pathname)
+      return
+    }
+
+    const result = await request<{ token: string; usuario: User }>(`/auth/${authMode.value}`, {
+      method: 'POST',
+      body: JSON.stringify(authForm),
+    })
+    setSession(result.token, result.usuario)
+    Object.assign(authForm, { nome: '', login: '', email: '', senha: '', nova_senha: '' })
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  } finally {
+    authLoading.value = false
+  }
+}
+
+async function logout() {
+  try {
+    await request('/auth/logout', { method: 'POST' })
+  } catch {
+    // Sessao local tambem e encerrada se o token ja estiver invalido no servidor.
+  }
+  clearSession()
+}
+
+function setSession(nextToken: string, user: User) {
+  token.value = nextToken
+  currentUser.value = user
+  localStorage.setItem('vf_token', nextToken)
+}
+
+function clearSession() {
+  token.value = ''
+  currentUser.value = null
+  localStorage.removeItem('vf_token')
 }
 
 async function loadAll() {
@@ -365,7 +428,6 @@ function openProduct(product?: Product) {
 
 async function openProposal(proposal: Proposal) {
   try {
-    lossReasonAi.value = null
     const detail = await request<Proposal>(`/propostas/${proposal.id}`)
     selectedProposal.value = detail
     Object.assign(proposalForm, {
@@ -395,7 +457,6 @@ function openType(type?: VisitType) {
 
 function openVisit(visit?: Visit) {
   editingId.value = visit?.id ?? null
-  visitAiSummary.value = null
   Object.assign(visitForm, {
     concessionaria_id: visit ? String(visit.concessionaria_id) : '',
     tipo_visita_id: visit ? String(visit.tipo_visita_id) : '',
@@ -485,63 +546,6 @@ async function saveProposal() {
   }
 }
 
-async function generateVisitSummary() {
-  if (!visitForm.observacao.trim()) {
-    showMessage('Informe a observacao da visita para resumir')
-    return
-  }
-  aiLoading.value = 'visit-summary'
-  try {
-    visitAiSummary.value = await request<VisitAiSummary>('/ia/visita-resumo', {
-      method: 'POST',
-      body: JSON.stringify({ observacao: visitForm.observacao }),
-    })
-  } catch (error) {
-    showMessage(error)
-  } finally {
-    aiLoading.value = null
-  }
-}
-
-function applyVisitSummary() {
-  if (!visitAiSummary.value) return
-  visitForm.observacao = formatVisitAiSummary(visitAiSummary.value)
-}
-
-async function loadDashboardInsights() {
-  aiLoading.value = 'dashboard-insights'
-  try {
-    const params = new URLSearchParams()
-    const range = dashboardRange.value
-    if (range.data_inicial) params.set('data_inicial', range.data_inicial)
-    if (range.data_final) params.set('data_final', range.data_final)
-    dashboardAiInsights.value = await request<DashboardAiInsights>(`/ia/dashboard-insights?${params.toString()}`)
-  } catch (error) {
-    showMessage(error)
-  } finally {
-    aiLoading.value = null
-  }
-}
-
-async function suggestLossReason() {
-  if (!selectedProposal.value) return
-  aiLoading.value = 'loss-reason'
-  try {
-    lossReasonAi.value = await request<LossReasonAi>(`/ia/propostas/${selectedProposal.value.id}/motivo-perda`, {
-      method: 'POST',
-      body: JSON.stringify({
-        motivo_perda: proposalForm.motivo_perda,
-        observacao_final: proposalForm.observacao_final,
-      }),
-    })
-    proposalForm.motivo_perda = lossReasonAi.value.motivo_sugerido
-  } catch (error) {
-    showMessage(error)
-  } finally {
-    aiLoading.value = null
-  }
-}
-
 async function removeEntity(kind: string, id: number) {
   const labels: Record<string, string> = {
     concessionarias: 'concessionaria',
@@ -580,7 +584,6 @@ function setSection(section: string) {
 
 function setDashboardPeriod(period: DashboardPeriod) {
   dashboardPeriod.value = period
-  dashboardAiInsights.value = null
   void loadDashboard().catch(showMessage)
 }
 
@@ -711,20 +714,6 @@ function formatMeeting(visit: Visit) {
   return `${formatDate(visit.data_proxima_reuniao)} as ${visit.hora_proxima_reuniao.slice(0, 5)}`
 }
 
-function formatVisitAiSummary(summary: VisitAiSummary) {
-  const sections: Array<[string, string[]]> = [
-    ['Resumo', [summary.resumo]],
-    ['Pontos de dor', summary.pontos_de_dor],
-    ['Interesses', summary.interesses],
-    ['Objecoes', summary.objecoes],
-    ['Proximos passos', summary.proximos_passos],
-  ]
-  return sections
-    .filter(([, items]) => items.some(Boolean))
-    .map(([title, items]) => `${title}:\n${items.filter(Boolean).map((item) => `- ${item}`).join('\n')}`)
-    .join('\n\n')
-}
-
 function googleCalendarUrl(visit: Visit) {
   const { start, end } = calendarRange(visit)
   const title = `Nova reuniao - ${visit.concessionaria}`
@@ -839,19 +828,82 @@ function formatOutlookDate(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`
 }
 
-onMounted(() => {
-  void loadAll()
+onMounted(async () => {
+  const params = new URLSearchParams(window.location.search)
+  const reset = params.get('reset_token')
+  if (reset) {
+    resetToken.value = reset
+    authMode.value = 'redefinir'
+    return
+  }
+
+  if (!token.value) return
+  try {
+    currentUser.value = await request<User>('/auth/me')
+    await loadAll()
+  } catch (error) {
+    showMessage(error)
+  }
 })
 </script>
 
 <template>
-  <div class="app-shell">
+  <section v-if="!currentUser" class="auth-screen">
+    <form class="auth-card" @submit.prevent="submitAuth">
+      <div class="brand auth-brand">
+        <div class="brand-mark">VF</div>
+        <div>
+          <strong>Visita Facil</strong>
+          <span>Acesse sua area comercial</span>
+        </div>
+      </div>
+
+      <div class="auth-tabs" role="group" aria-label="Acesso">
+        <button type="button" :class="{ active: authMode === 'login' }" @click="authMode = 'login'">Login</button>
+        <button type="button" :class="{ active: authMode === 'cadastro' }" @click="authMode = 'cadastro'">Cadastro</button>
+      </div>
+
+      <template v-if="authMode === 'recuperar'">
+        <label>Login ou e-mail<input v-model="authForm.login" autocomplete="username" required /></label>
+      </template>
+      <template v-else-if="authMode === 'redefinir'">
+        <label>Nova senha<input v-model="authForm.nova_senha" type="password" autocomplete="new-password" required /></label>
+      </template>
+      <template v-else>
+        <label v-if="authMode === 'cadastro'">Nome<input v-model="authForm.nome" autocomplete="name" required /></label>
+        <label>Login<input v-model="authForm.login" autocomplete="username" required /></label>
+        <label v-if="authMode === 'cadastro'">E-mail<input v-model="authForm.email" type="email" autocomplete="email" required /></label>
+        <label>Senha<input v-model="authForm.senha" type="password" :autocomplete="authMode === 'cadastro' ? 'new-password' : 'current-password'" required /></label>
+      </template>
+
+      <button class="btn primary full" type="submit" :disabled="authLoading">
+        {{
+          authLoading
+            ? 'Processando...'
+            : authMode === 'login'
+              ? 'Entrar'
+              : authMode === 'cadastro'
+                ? 'Criar cadastro'
+                : authMode === 'recuperar'
+                  ? 'Enviar e-mail'
+                  : 'Atualizar senha'
+        }}
+      </button>
+      <div class="auth-links">
+        <button v-if="authMode === 'login'" type="button" @click="authMode = 'recuperar'">Esqueci minha senha</button>
+        <button v-else type="button" @click="authMode = 'login'">Voltar para login</button>
+      </div>
+    </form>
+    <div v-if="message" class="toast">{{ message }}</div>
+  </section>
+
+  <div v-else class="app-shell">
     <header class="mobile-header">
       <div class="brand">
         <div class="brand-mark">VF</div>
         <div>
           <strong>Visita Facil</strong>
-          <span>Gestao comercial</span>
+          <span>{{ currentUser.nome }}</span>
         </div>
       </div>
       <button
@@ -881,7 +933,7 @@ onMounted(() => {
         <div class="brand-mark">VF</div>
         <div>
           <strong>Visita Facil</strong>
-          <span>Gestao comercial</span>
+          <span>{{ currentUser.nome }}</span>
         </div>
       </div>
 
@@ -898,6 +950,11 @@ onMounted(() => {
           <span>{{ section.label }}</span>
         </button>
       </nav>
+
+      <button class="nav-item logout-item" type="button" @click="logout">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="iconPath('power')" /></svg>
+        <span>Sair</span>
+      </button>
     </aside>
 
     <main class="main-content">
@@ -999,41 +1056,7 @@ onMounted(() => {
           </button>
         </div>
 
-        <section class="panel ai-panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Insights da IA</h2>
-              <span>Analise comercial do periodo selecionado</span>
-            </div>
-            <button class="btn ghost" type="button" :disabled="aiLoading === 'dashboard-insights'" @click="loadDashboardInsights">
-              {{ aiLoading === 'dashboard-insights' ? 'Analisando...' : 'Gerar insights' }}
-            </button>
-          </div>
-          <div v-if="dashboardAiInsights" class="ai-content">
-            <p class="ai-summary">{{ dashboardAiInsights.resumo }}</p>
-            <div class="ai-columns">
-              <section>
-                <h3>Alertas</h3>
-                <ul>
-                  <li v-for="item in dashboardAiInsights.alertas" :key="item">{{ item }}</li>
-                </ul>
-              </section>
-              <section>
-                <h3>Oportunidades</h3>
-                <ul>
-                  <li v-for="item in dashboardAiInsights.oportunidades" :key="item">{{ item }}</li>
-                </ul>
-              </section>
-              <section>
-                <h3>Acoes recomendadas</h3>
-                <ul>
-                  <li v-for="item in dashboardAiInsights.acoes_recomendadas" :key="item">{{ item }}</li>
-                </ul>
-              </section>
-            </div>
-          </div>
-          <p v-else class="empty">Gere uma analise para ver riscos, oportunidades e proximas acoes.</p>
-        </section>
+        <!-- IA desativada: painel de insights removido da interface. -->
 
         <section class="panel">
           <div class="panel-heading">
@@ -1465,45 +1488,7 @@ onMounted(() => {
           </label>
           <label>Data da visita<input v-model="visitForm.data_visita" type="date" required /></label>
           <label class="full">Observacao<textarea v-model="visitForm.observacao" rows="4"></textarea></label>
-          <div class="ai-box full">
-            <div class="ai-box-heading">
-              <strong>Resumo automatico da visita</strong>
-              <button class="btn ghost" type="button" :disabled="aiLoading === 'visit-summary'" @click="generateVisitSummary">
-                {{ aiLoading === 'visit-summary' ? 'Resumindo...' : 'Resumir com IA' }}
-              </button>
-            </div>
-            <div v-if="visitAiSummary" class="ai-content compact">
-              <p class="ai-summary">{{ visitAiSummary.resumo }}</p>
-              <div class="ai-columns">
-                <section>
-                  <h3>Pontos de dor</h3>
-                  <ul>
-                    <li v-for="item in visitAiSummary.pontos_de_dor" :key="item">{{ item }}</li>
-                  </ul>
-                </section>
-                <section>
-                  <h3>Interesses</h3>
-                  <ul>
-                    <li v-for="item in visitAiSummary.interesses" :key="item">{{ item }}</li>
-                  </ul>
-                </section>
-                <section>
-                  <h3>Objecoes</h3>
-                  <ul>
-                    <li v-for="item in visitAiSummary.objecoes" :key="item">{{ item }}</li>
-                  </ul>
-                </section>
-                <section>
-                  <h3>Proximos passos</h3>
-                  <ul>
-                    <li v-for="item in visitAiSummary.proximos_passos" :key="item">{{ item }}</li>
-                  </ul>
-                </section>
-              </div>
-              <button class="btn ghost" type="button" @click="applyVisitSummary">Usar resumo na observacao</button>
-            </div>
-            <p v-else class="ai-hint">A IA organiza a observacao em resumo, dores, interesses, objecoes e proximos passos.</p>
-          </div>
+          <!-- IA desativada: resumo automatico da visita removido da interface. -->
           <fieldset class="product-picker full">
             <legend>Produtos negociados</legend>
             <label v-for="product in products" :key="product.id">
@@ -1614,18 +1599,7 @@ onMounted(() => {
                 </select>
               </label>
               <label class="switch"><input v-model="proposalForm.finalizada" type="checkbox" /> Proposta finalizada?</label>
-              <div v-if="proposalForm.status === 'Perdida'" class="ai-box full">
-                <div class="ai-box-heading">
-                  <strong>Motivo da perda</strong>
-                  <button class="btn ghost" type="button" :disabled="aiLoading === 'loss-reason'" @click="suggestLossReason">
-                    {{ aiLoading === 'loss-reason' ? 'Classificando...' : 'Classificar com IA' }}
-                  </button>
-                </div>
-                <label>Motivo da perda<textarea v-model="proposalForm.motivo_perda" rows="3"></textarea></label>
-                <p v-if="lossReasonAi" class="ai-hint">
-                  Categoria sugerida: {{ lossReasonAi.categoria }} | confianca {{ lossReasonAi.confianca }}
-                </p>
-              </div>
+              <label v-if="proposalForm.status === 'Perdida'" class="full">Motivo da perda<textarea v-model="proposalForm.motivo_perda" rows="3"></textarea></label>
               <label v-if="proposalForm.status === 'Ganha' || proposalForm.status === 'Perdida'" class="full">Observacao final<textarea v-model="proposalForm.observacao_final" rows="3"></textarea></label>
             </div>
           </section>
