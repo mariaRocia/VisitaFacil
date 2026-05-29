@@ -1675,7 +1675,6 @@ onMounted(async () => {
           <button class="btn primary full" type="submit" :disabled="saving">{{ saving ? 'Salvando...' : 'Salvar proposta' }}</button>
         </form>
 
-        <div v-if="saving" class="modal-saving" aria-live="polite">Salvando...</div>
       </section>
     </div>
   </div>
