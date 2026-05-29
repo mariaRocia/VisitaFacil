@@ -279,13 +279,18 @@ function iconPath(name: string) {
 async function request<T>(path: string, options: RequestInit = {}) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token.value) headers.Authorization = `Bearer ${token.value}`
-  const response = await fetch(`${apiBase}${path}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options.headers as Record<string, string> | undefined),
-    },
-  })
+  let response: Response
+  try {
+    response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers: {
+        ...headers,
+        ...(options.headers as Record<string, string> | undefined),
+      },
+    })
+  } catch {
+    throw new Error('Nao foi possivel conectar ao servidor. Aguarde alguns segundos e tente novamente.')
+  }
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     if (response.status === 401) clearSession()
