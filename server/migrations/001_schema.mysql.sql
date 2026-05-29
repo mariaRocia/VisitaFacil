@@ -148,10 +148,4 @@ CREATE INDEX idx_propostas_visita ON propostas(visita_id);
 CREATE INDEX idx_propostas_status ON propostas(status);
 CREATE INDEX idx_proposta_produtos_produto ON proposta_produtos(produto_id);
 
-INSERT IGNORE INTO tipos_visita (nome, descricao, ativo) VALUES
-  ('Visita Comercial', 'Primeiro contato ou visita de relacionamento comercial', 1),
-  ('Follow-up', 'Retorno para acompanhar oportunidades em andamento', 1),
-  ('Pos-venda', 'Acompanhamento apos a venda', 1),
-  ('Demonstracao', 'Apresentacao pratica de produto ou solucao', 1),
-  ('Treinamento', 'Capacitacao da equipe da concessionaria', 1),
-  ('Reuniao Estrategica', 'Discussao de plano comercial e proximos passos', 1);
+
